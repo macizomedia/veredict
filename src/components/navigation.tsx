@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useSession } from "next-auth/react";
+import { Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SearchBar } from "@/app/_components/search-bar";
@@ -45,7 +46,9 @@ export function Navigation() {
 
           {/* Search Bar */}
           <div className="flex-1 max-w-lg mx-8">
-            <SearchBar placeholder="Search posts..." showFilters={false} />
+            <Suspense fallback={<div className="h-10 bg-gray-100 rounded-md animate-pulse" />}>
+              <SearchBar placeholder="Search posts..." showFilters={false} />
+            </Suspense>
           </div>
 
           <div className="flex items-center space-x-4">

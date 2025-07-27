@@ -48,6 +48,11 @@ export const postRouter = createTRPCRouter({
               sourceClicks: true,
             },
           },
+          _count: {
+            select: {
+              internalComments: true,
+            },
+          },
           // Include user's vote if authenticated
           ...(ctx.session?.user && {
             votes: {
@@ -65,6 +70,7 @@ export const postRouter = createTRPCRouter({
         isAuthor: ctx.session?.user 
           ? post.authors.some((author: { user: { id: string } }) => author.user.id === ctx.session!.user.id)
           : false,
+        commentCount: post._count.internalComments,
         // Remove votes from response to keep it clean
         votes: undefined,
       }));

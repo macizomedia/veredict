@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { VoteButtons } from "@/app/_components/vote-buttons";
 import { PostViewTracker } from "@/app/_components/post-view-tracker";
+import { Comments } from "@/app/_components/comments";
 import { notFound } from "next/navigation";
 import { auth } from "@/server/auth";
 
@@ -200,6 +201,11 @@ export default async function PostPage({ params }: PostPageProps) {
             )}
           </CardContent>
         </Card>
+
+        {/* Comments Section - Only show for published posts */}
+        {post.status === 'PUBLISHED' && (
+          <Comments postId={postId} />
+        )}
       </div>
     );
   } catch (error) {

@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Eye, MousePointer, Calendar, Hash, Upload, Edit } from "lucide-react";
+import { Eye, MousePointer, Calendar, Hash, Upload, Edit, MessageCircle } from "lucide-react";
 
 export function UserPosts() {
   const [statusFilter, setStatusFilter] = useState<"DRAFT" | "PUBLISHED" | "ARCHIVED" | "DISPUTED" | undefined>();
@@ -176,18 +176,24 @@ export function UserPosts() {
                     )}
                     
                     {/* Analytics */}
-                    {post.analytics && (
-                      <div className="flex items-center gap-3 text-sm text-gray-500">
-                        <div className="flex items-center gap-1">
-                          <Eye className="h-3 w-3" />
-                          <span>{post.analytics.views} views</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <MousePointer className="h-3 w-3" />
-                          <span>{post.analytics.sourceClicks} clicks</span>
-                        </div>
+                    <div className="flex items-center gap-3 text-sm text-gray-500">
+                      {post.analytics && (
+                        <>
+                          <div className="flex items-center gap-1">
+                            <Eye className="h-3 w-3" />
+                            <span>{post.analytics.views} views</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <MousePointer className="h-3 w-3" />
+                            <span>{post.analytics.sourceClicks} clicks</span>
+                          </div>
+                        </>
+                      )}
+                      <div className="flex items-center gap-1">
+                        <MessageCircle className="h-3 w-3" />
+                        <span>{post._count?.internalComments || 0} {(post._count?.internalComments || 0) === 1 ? 'comment' : 'comments'}</span>
                       </div>
-                    )}
+                    </div>
                   </div>
                   
                   {/* Vote counts and Actions */}

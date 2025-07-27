@@ -149,6 +149,11 @@ export const userRouter = createTRPCRouter({
               sourceClicks: true,
             },
           },
+          _count: {
+            select: {
+              internalComments: true,
+            },
+          },
         },
         orderBy: { updatedAt: "desc" },
         take: input.limit + 1,

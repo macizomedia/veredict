@@ -13,6 +13,7 @@ import {
   Clock,
   Filter,
   Search,
+  MessageCircle,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -205,6 +206,12 @@ function SearchResults() {
                     <div className="flex items-center gap-1">
                       <TrendingUp className="h-4 w-4" />
                       <span>{post.analytics?.views || 0} views</span>
+                    </div>
+
+                    {/* Comments */}
+                    <div className="flex items-center gap-1">
+                      <MessageCircle className="h-4 w-4" />
+                      <span>{post.commentCount || 0} {(post.commentCount || 0) === 1 ? 'comment' : 'comments'}</span>
                     </div>
 
                     {/* Relevance score (only show for relevance sort) */}

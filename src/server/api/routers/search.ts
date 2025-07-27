@@ -25,6 +25,7 @@ export const searchRouter = createTRPCRouter({
           p.*,
           c.id as "categoryId", c.name as "categoryName",
           a.views, a."sourceClicks",
+          COALESCE(comment_counts.count, 0) as "commentCount",
           ts_rank(
             to_tsvector('english', p.title || ' ' || p.prompt || ' ' || COALESCE(p."contentBlocks"::text, '')),
             plainto_tsquery('english', ${query})
@@ -32,6 +33,11 @@ export const searchRouter = createTRPCRouter({
         FROM "Post" p
         LEFT JOIN "Category" c ON p."categoryId" = c.id
         LEFT JOIN "Analytics" a ON p.id = a."postId"
+        LEFT JOIN (
+          SELECT "postId", COUNT(*) as count 
+          FROM "Comment" 
+          GROUP BY "postId"
+        ) comment_counts ON p.id = comment_counts."postId"
         WHERE 
           p.status = 'PUBLISHED' 
           AND p."isLatest" = true

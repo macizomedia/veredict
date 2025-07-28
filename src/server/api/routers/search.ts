@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
 import { SearchCache } from "@/server/redis";
+import { SearchIndexer } from "@/server/search-indexer";
 
 export const searchRouter = createTRPCRouter({
-  // Full-text search across posts with Redis caching
+  // Full-text search across posts with Redis caching and indexing
   searchPosts: publicProcedure
     .input(z.object({
       query: z.string().min(1).max(100),
@@ -29,33 +30,51 @@ export const searchRouter = createTRPCRouter({
         return cachedResult;
       }
 
-      console.log('💾 Cache MISS for search:', query.trim(), '- fetching from DB');
+      console.log('💾 Cache MISS for search:', query.trim(), '- checking Redis index');
       
-      // Build the WHERE clause conditionally
-      let whereClause = `
-        WHERE 
-          p.status = 'PUBLISHED' 
-          AND p."isLatest" = true
-          AND to_tsvector('english', p.title || ' ' || p.prompt || ' ' || COALESCE(p."contentBlocks"::text, ''))
-              @@ plainto_tsquery('english', $1)
-      `;
-      
-      // Build the ORDER BY clause conditionally
-      let orderByClause = '';
-      if (sortBy === 'relevance') {
-        orderByClause = 'ORDER BY rank DESC';
-      } else if (sortBy === 'date') {
-        orderByClause = 'ORDER BY p."createdAt" DESC';
-      } else {
-        orderByClause = 'ORDER BY COALESCE(a.views, 0) DESC';
+      // Try Redis search index first
+      try {
+        const redisResult = await SearchIndexer.searchPosts(query.trim(), {
+          categoryId,
+          sortBy,
+          limit,
+          offset: 0,
+        });
+
+        if (redisResult.posts.length > 0) {
+          console.log('✅ Found results in Redis index:', redisResult.posts.length);
+          
+          // Transform Redis results to match expected format
+          const enrichedPosts = redisResult.posts.map((post: any) => ({
+            ...post,
+            category: post.categoryId ? { id: post.categoryId, name: post.categoryName } : null,
+            analytics: { views: post.views || 0, sourceClicks: 0 },
+            authors: [], // Could be enhanced by fetching from cache
+            userVote: null,
+            isAuthor: false,
+          }));
+
+          const result = {
+            posts: enrichedPosts,
+            total: redisResult.total,
+          };
+
+          // Cache the result for 5 minutes
+          await SearchCache.set(cacheKey, result, 300);
+          return result;
+        }
+      } catch (redisError) {
+        console.warn('⚠️ Redis search failed, falling back to PostgreSQL:', redisError);
       }
 
+      // Fallback to PostgreSQL search if Redis fails or has no results
+      console.log('🔍 Falling back to PostgreSQL search');
+      
       // PostgreSQL full-text search with ranking
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let posts: any[];
       
       if (categoryId) {
-        whereClause += ' AND p."categoryId" = $2';
         posts = await (ctx.db as any).$queryRaw`
           SELECT 
             p.*,
@@ -229,5 +248,17 @@ export const searchRouter = createTRPCRouter({
         "politics",
         "economics",
       ];
+    }),
+
+  // Admin endpoint to reindex all posts in Redis
+  reindexAll: publicProcedure
+    .query(async () => {
+      try {
+        await SearchIndexer.reindexAll();
+        return { success: true, message: "All posts reindexed successfully" };
+      } catch (error) {
+        console.error('Reindex failed:', error);
+        return { success: false, message: "Reindex failed" };
+      }
     }),
 });

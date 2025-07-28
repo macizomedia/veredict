@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure, publicProcedure } from "@/server/api/trpc";
+import { searchHooks } from "@/server/search-indexer";
 
 export const commentRouter = createTRPCRouter({
   // Get comments for a post
@@ -71,6 +72,9 @@ export const commentRouter = createTRPCRouter({
         },
       });
 
+      // Update search index to reflect new comment count
+      await searchHooks.onCommentCreated(input.postId);
+
       return comment;
     }),
 
@@ -127,7 +131,7 @@ export const commentRouter = createTRPCRouter({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const existingComment = await (ctx.db as any).comment.findUnique({
         where: { id: input.id },
-        select: { authorId: true },
+        select: { authorId: true, postId: true },
       });
 
       if (!existingComment) {
@@ -146,6 +150,9 @@ export const commentRouter = createTRPCRouter({
       await (ctx.db as any).comment.delete({
         where: { id: input.id },
       });
+
+      // Update search index to reflect updated comment count
+      await searchHooks.onCommentDeleted(existingComment.postId);
 
       return { success: true };
     }),

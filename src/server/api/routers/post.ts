@@ -6,6 +6,7 @@ import {
   publicProcedure,
 } from "@/server/api/trpc";
 import { SearchCache } from "@/server/redis";
+import { searchHooks } from "@/server/search-indexer";
 
 export const postRouter = createTRPCRouter({
   // Get all posts - now with relationships and voting information + Redis caching
@@ -166,6 +167,11 @@ export const postRouter = createTRPCRouter({
         await SearchCache.invalidate(`feed:${categoryId}:*`);
       }
       await SearchCache.invalidate('search:*');
+
+      // Index post for search if published
+      if (post.status === 'PUBLISHED') {
+        await searchHooks.onPostCreated(post.id);
+      }
 
       return post;
     }),
@@ -522,6 +528,9 @@ export const postRouter = createTRPCRouter({
       if (updatedPost.categoryId) {
         await SearchCache.invalidate(`feed:${updatedPost.categoryId}:*`);
       }
+
+      // Index post for search when published
+      await searchHooks.onPostPublished(updatedPost.id);
 
       return updatedPost;
     }),

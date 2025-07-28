@@ -5,15 +5,28 @@ import {
   protectedProcedure,
   publicProcedure,
 } from "@/server/api/trpc";
+import { SearchCache } from "@/server/redis";
 
 export const postRouter = createTRPCRouter({
-  // Get all posts - now with relationships and voting information
+  // Get all posts - now with relationships and voting information + Redis caching
   getFeed: publicProcedure
     .input(z.object({
       limit: z.number().min(1).max(100).default(10),
       categoryId: z.number().optional(),
     }))
     .query(async ({ ctx, input }) => {
+      // Generate cache key for feed
+      const cacheKey = SearchCache.generateFeedKey(input.categoryId, input.limit);
+      
+      // Try to get from cache first (shorter TTL for feeds since they update frequently)
+      const cachedResult = await SearchCache.get(cacheKey);
+      if (cachedResult) {
+        console.log('🎯 Cache HIT for feed:', input.categoryId || 'all');
+        return cachedResult;
+      }
+
+      console.log('💾 Cache MISS for feed:', input.categoryId || 'all', '- fetching from DB');
+      
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const posts = await (ctx.db as any).post.findMany({
         take: input.limit,
@@ -75,10 +88,15 @@ export const postRouter = createTRPCRouter({
         votes: undefined,
       }));
 
-      return {
+      const result = {
         posts: enrichedPosts,
         nextCursor: undefined,
       };
+
+      // Cache the result for 2 minutes (shorter TTL for feeds)
+      await SearchCache.set(cacheKey, result, 120);
+
+      return result;
     }),
 
   // Create a new post - now requires authentication and handles relationships
@@ -141,6 +159,13 @@ export const postRouter = createTRPCRouter({
           sourceClicks: 0,
         },
       });
+
+      // Invalidate relevant caches
+      await SearchCache.invalidate('feed:*');
+      if (categoryId) {
+        await SearchCache.invalidate(`feed:${categoryId}:*`);
+      }
+      await SearchCache.invalidate('search:*');
 
       return post;
     }),
@@ -490,6 +515,13 @@ export const postRouter = createTRPCRouter({
           },
         },
       });
+
+      // Invalidate relevant caches when post is published
+      await SearchCache.invalidate('feed:*');
+      await SearchCache.invalidate('search:*');
+      if (updatedPost.categoryId) {
+        await SearchCache.invalidate(`feed:${updatedPost.categoryId}:*`);
+      }
 
       return updatedPost;
     }),

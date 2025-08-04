@@ -124,19 +124,28 @@ export const userRouter = createTRPCRouter({
               userId,
             },
           },
+          currentRevisionId: { not: null },
           ...(input.status && { status: input.status }),
         },
         select: {
           id: true,
-          title: true,
+          slug: true,
           status: true,
-          version: true,
-          isLatest: true,
-          summaryOfChanges: true,
           upVotes: true,
           downVotes: true,
           createdAt: true,
           updatedAt: true,
+          currentRevision: {
+            select: {
+              id: true,
+              title: true,
+              version: true,
+              summaryOfChanges: true,
+              minRead: true,
+              tone: true,
+              style: true,
+            },
+          },
           category: {
             select: {
               id: true,

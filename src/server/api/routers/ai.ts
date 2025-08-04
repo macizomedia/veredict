@@ -59,7 +59,7 @@ export const aiRouter = createTRPCRouter({
       categoryId: z.number().optional(),
       minRead: z.number().min(1).default(5),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       try {
         // Generate content using AI Agent
         const aiResult = await AIAgentService.generateContentSimple({
@@ -74,10 +74,33 @@ export const aiRouter = createTRPCRouter({
           throw new Error('AI failed to generate content blocks');
         }
 
-        // For testing without authentication, just return the generated content
-        return {
-          success: true,
-          post: {
+        // Create slug from title
+        const slug = input.title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/(^-|-$)/g, '') + `-${Date.now()}`;
+
+        // Create the post container with PUBLISHED status so it appears in feed
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const post = await (ctx.db as any).post.create({
+          data: {
+            slug,
+            status: 'PUBLISHED',
+            ...(input.categoryId && { 
+              category: {
+                connect: { id: input.categoryId }
+              }
+            }),
+          }
+        });
+
+        // Create the revision
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const revision = await (ctx.db as any).revision.create({
+          data: {
+            post: {
+              connect: { id: post.id }
+            },
             title: input.title,
             prompt: input.prompt,
             contentBlocks: {
@@ -86,8 +109,51 @@ export const aiRouter = createTRPCRouter({
             tone: input.tone.toUpperCase(),
             style: input.style.toUpperCase(),
             minRead: input.minRead,
-            status: 'DRAFT',
-            createdAt: new Date(),
+            summaryOfChanges: 'AI-generated initial version',
+            version: 1,
+          }
+        });
+
+        // Update post to link to the current revision
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const updatedPost = await (ctx.db as any).post.update({
+          where: { id: post.id },
+          data: {
+            currentRevision: {
+              connect: { id: revision.id }
+            }
+          },
+          include: {
+            currentRevision: true,
+          }
+        });
+
+        // Create analytics entry
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (ctx.db as any).analytics.create({
+          data: {
+            postId: updatedPost.id,
+            views: 0,
+            sourceClicks: 0,
+          },
+        });
+
+        // Since we don't have authentication, we'll skip adding authors for now
+        // This is a limitation for testing without auth
+
+        return {
+          success: true,
+          post: {
+            id: updatedPost.id,
+            slug: updatedPost.slug,
+            title: updatedPost.currentRevision.title,
+            contentBlocks: updatedPost.currentRevision.contentBlocks,
+            tone: updatedPost.currentRevision.tone,
+            style: updatedPost.currentRevision.style,
+            minRead: updatedPost.currentRevision.minRead,
+            status: updatedPost.status,
+            createdAt: updatedPost.createdAt,
+            version: revision.version,
           },
           aiGenerated: true,
           reviewRequired: aiResult.reviewRequired,

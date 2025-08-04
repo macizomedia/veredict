@@ -14,27 +14,31 @@ export const postRouter = createTRPCRouter({
     .input(z.object({
       limit: z.number().min(1).max(100).default(10),
       categoryId: z.number().optional(),
-    }))
+    }).optional().default({}))
     .query(async ({ ctx, input }) => {
+      // Provide defaults for when input is an empty object
+      const limit = input?.limit ?? 10;
+      const categoryId = input?.categoryId;
+      
       // Generate cache key for feed
-      const cacheKey = SearchCache.generateFeedKey(input.categoryId, input.limit);
+      const cacheKey = SearchCache.generateFeedKey(categoryId, limit);
       
       // Try to get from cache first (shorter TTL for feeds since they update frequently)
       const cachedResult = await SearchCache.get(cacheKey);
       if (cachedResult) {
-        console.log('🎯 Cache HIT for feed:', input.categoryId || 'all');
+        console.log('🎯 Cache HIT for feed:', categoryId || 'all');
         return cachedResult;
       }
 
-      console.log('💾 Cache MISS for feed:', input.categoryId || 'all', '- fetching from DB');
+      console.log('💾 Cache MISS for feed:', categoryId || 'all', '- fetching from DB');
       
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const posts = await (ctx.db as any).post.findMany({
-        take: input.limit,
+        take: limit,
         where: {
-          ...(input.categoryId !== undefined ? { categoryId: input.categoryId } : {}),
-          isLatest: true, // Only show latest versions
+          ...(categoryId !== undefined ? { categoryId: categoryId } : {}),
           status: 'PUBLISHED', // Only show published posts in the feed
+          currentRevisionId: { not: null }, // Ensure post has content
         },
         orderBy: { createdAt: "desc" },
         include: {
@@ -43,6 +47,19 @@ export const postRouter = createTRPCRouter({
               id: true,
               name: true,
             },
+          },
+          currentRevision: {
+            select: {
+              id: true,
+              title: true,
+              contentBlocks: true,
+              prompt: true,
+              tone: true,
+              style: true,
+              minRead: true,
+              version: true,
+              summaryOfChanges: true,
+            }
           },
           authors: {
             include: {
@@ -80,6 +97,16 @@ export const postRouter = createTRPCRouter({
       // Add derived fields for each post
       const enrichedPosts = posts.map((post: any) => ({
         ...post,
+        // Map current revision content to post level for backward compatibility
+        title: post.currentRevision?.title || 'Untitled',
+        contentBlocks: post.currentRevision?.contentBlocks,
+        prompt: post.currentRevision?.prompt,
+        tone: post.currentRevision?.tone,
+        style: post.currentRevision?.style,
+        minRead: post.currentRevision?.minRead || 5,
+        version: post.currentRevision?.version || 1,
+        summaryOfChanges: post.currentRevision?.summaryOfChanges,
+        // Keep original post fields
         userVote: post.votes?.[0]?.voteType ?? null,
         isAuthor: ctx.session?.user 
           ? post.authors.some((author: { user: { id: string } }) => author.user.id === ctx.session!.user.id)
@@ -87,6 +114,7 @@ export const postRouter = createTRPCRouter({
         commentCount: post._count.internalComments,
         // Remove votes from response to keep it clean
         votes: undefined,
+        _count: undefined,
       }));
 
       const result = {
@@ -566,6 +594,11 @@ export const postRouter = createTRPCRouter({
               },
             },
           },
+          currentRevision: true,
+          revisions: {
+            orderBy: { version: 'desc' },
+            take: 1,
+          },
         },
       });
 
@@ -582,73 +615,102 @@ export const postRouter = createTRPCRouter({
         throw new Error("You don't have permission to edit this post");
       }
 
-      // If this is a significant edit, create a new version
-      const shouldCreateVersion = summaryOfChanges && Object.keys(updateData).length > 0;
-      
-      if (shouldCreateVersion) {
-        // Mark current version as not latest
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (ctx.db as any).post.update({
-          where: { id: postId },
-          data: { isLatest: false },
-        });
+      // Get the current revision
+      const currentRevision = post.currentRevision;
+      if (!currentRevision) {
+        throw new Error("Post has no current revision");
+      }
 
-        // Create new version
+      // If this is a significant edit, create a new revision
+      const shouldCreateRevision = summaryOfChanges && Object.keys(updateData).length > 0;
+      
+      if (shouldCreateRevision) {
+        // Create new revision
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { authors, ...postDataWithoutRelations } = post;
-        const newVersion = await (ctx.db as any).post.create({
+        const newRevision = await (ctx.db as any).revision.create({
           data: {
-            ...postDataWithoutRelations,
-            id: undefined, // Let DB generate new ID
-            parentId: postId,
-            version: post.version + 1,
-            isLatest: true,
+            title: updateData.title ?? currentRevision.title,
+            prompt: updateData.prompt ?? currentRevision.prompt,
+            tone: updateData.tone ?? currentRevision.tone,
+            style: updateData.style ?? currentRevision.style,
+            minRead: updateData.minRead ?? currentRevision.minRead,
+            contentBlocks: updateData.contentBlocks ?? currentRevision.contentBlocks,
             summaryOfChanges,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-            ...updateData,
+            version: currentRevision.version + 1,
+            postId: postId,
+            parentId: currentRevision.id,
           },
         });
 
-        // Copy authors to new version
-        for (const author of post.authors) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (ctx.db as any).postAuthor.create({
-            data: {
-              postId: newVersion.id,
-              userId: author.user.id,
-            },
-          });
-        }
-
-        return newVersion;
-      } else {
-        // Simple update without versioning
+        // Update post to point to new revision
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const updatedPost = await (ctx.db as any).post.update({
           where: { id: postId },
           data: {
-            ...updateData,
+            currentRevisionId: newRevision.id,
+            categoryId: updateData.categoryId ?? post.categoryId,
             updatedAt: new Date(),
           },
           include: {
-            category: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
+            currentRevision: true,
             authors: {
               include: {
                 user: {
                   select: {
                     id: true,
                     name: true,
-                    role: true,
+                    image: true,
                   },
                 },
               },
             },
+            category: true,
+            sources: true,
+            labels: true,
+          },
+        });
+
+        return updatedPost;
+      } else {
+        // Minor update - just update the current revision
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (ctx.db as any).revision.update({
+          where: { id: currentRevision.id },
+          data: {
+            title: updateData.title ?? currentRevision.title,
+            prompt: updateData.prompt ?? currentRevision.prompt,
+            tone: updateData.tone ?? currentRevision.tone,
+            style: updateData.style ?? currentRevision.style,
+            minRead: updateData.minRead ?? currentRevision.minRead,
+            contentBlocks: updateData.contentBlocks ?? currentRevision.contentBlocks,
+            updatedAt: new Date(),
+          },
+        });
+
+        // Update post metadata if needed
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const updatedPost = await (ctx.db as any).post.update({
+          where: { id: postId },
+          data: {
+            categoryId: updateData.categoryId ?? post.categoryId,
+            updatedAt: new Date(),
+          },
+          include: {
+            currentRevision: true,
+            authors: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    image: true,
+                  },
+                },
+              },
+            },
+            category: true,
+            sources: true,
+            labels: true,
           },
         });
 
@@ -805,40 +867,36 @@ export const postRouter = createTRPCRouter({
         throw new Error("You don't have permission to view post versions");
       }
 
-      // Get all versions (including the original and revisions)
+      // Get all revisions for this post
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const versions = await (ctx.db as any).post.findMany({
+      const revisions = await (ctx.db as any).revision.findMany({
         where: {
-          OR: [
-            { id: input.postId },
-            { parentId: input.postId },
-          ],
+          postId: input.postId,
         },
         select: {
           id: true,
           version: true,
-          isLatest: true,
           summaryOfChanges: true,
           createdAt: true,
           updatedAt: true,
-          status: true,
           title: true,
-          authors: {
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                  image: true,
-                },
-              },
-            },
-          },
+          tone: true,
+          style: true,
+          minRead: true,
         },
         orderBy: { version: 'desc' },
       });
 
-      return versions;
+      // Add isLatest flag for compatibility
+      const currentRevisionId = post.currentRevisionId;
+      const revisionsWithLatest = revisions.map((revision: any) => ({
+        ...revision,
+        isLatest: revision.id === currentRevisionId,
+        status: post.status, // Add post status to each revision
+        authors: post.authors, // Add authors for compatibility
+      }));
+
+      return revisionsWithLatest;
     }),
 
 });

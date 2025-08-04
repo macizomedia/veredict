@@ -77,15 +77,18 @@ export const searchRouter = createTRPCRouter({
       if (categoryId) {
         posts = await (ctx.db as any).$queryRaw`
           SELECT 
-            p.*,
+            p.id, p.slug, p.status, p."upVotes", p."downVotes", 
+            p."createdAt", p."updatedAt", p."categoryId",
+            r.title, r.prompt, r."contentBlocks", r."minRead",
             c.id as "categoryId", c.name as "categoryName",
             a.views, a."sourceClicks",
             COALESCE(comment_counts.count, 0) as "commentCount",
             ts_rank(
-              to_tsvector('english', p.title || ' ' || p.prompt || ' ' || COALESCE(p."contentBlocks"::text, '')),
+              to_tsvector('english', r.title || ' ' || r.prompt || ' ' || COALESCE(r."contentBlocks"::text, '')),
               plainto_tsquery('english', ${query.trim()})
             ) as rank
           FROM "Post" p
+          INNER JOIN "Revision" r ON p."currentRevisionId" = r.id
           LEFT JOIN "Category" c ON p."categoryId" = c.id
           LEFT JOIN "Analytics" a ON p.id = a."postId"
           LEFT JOIN (
@@ -95,8 +98,8 @@ export const searchRouter = createTRPCRouter({
           ) comment_counts ON p.id = comment_counts."postId"
           WHERE 
             p.status = 'PUBLISHED' 
-            AND p."isLatest" = true
-            AND to_tsvector('english', p.title || ' ' || p.prompt || ' ' || COALESCE(p."contentBlocks"::text, ''))
+            AND p."currentRevisionId" IS NOT NULL
+            AND to_tsvector('english', r.title || ' ' || r.prompt || ' ' || COALESCE(r."contentBlocks"::text, ''))
                 @@ plainto_tsquery('english', ${query.trim()})
             AND p."categoryId" = ${categoryId}
           ORDER BY 
@@ -108,15 +111,16 @@ export const searchRouter = createTRPCRouter({
       } else {
         posts = await (ctx.db as any).$queryRaw`
           SELECT 
-            p.*,
+            p.id, r.title, r.prompt, r."contentBlocks", p."createdAt", p.status, p."categoryId",
             c.id as "categoryId", c.name as "categoryName",
             a.views, a."sourceClicks",
             COALESCE(comment_counts.count, 0) as "commentCount",
             ts_rank(
-              to_tsvector('english', p.title || ' ' || p.prompt || ' ' || COALESCE(p."contentBlocks"::text, '')),
+              to_tsvector('english', r.title || ' ' || r.prompt || ' ' || COALESCE(r."contentBlocks"::text, '')),
               plainto_tsquery('english', ${query.trim()})
             ) as rank
           FROM "Post" p
+          INNER JOIN "Revision" r ON p."currentRevisionId" = r.id
           LEFT JOIN "Category" c ON p."categoryId" = c.id
           LEFT JOIN "Analytics" a ON p.id = a."postId"
           LEFT JOIN (
@@ -126,8 +130,8 @@ export const searchRouter = createTRPCRouter({
           ) comment_counts ON p.id = comment_counts."postId"
           WHERE 
             p.status = 'PUBLISHED' 
-            AND p."isLatest" = true
-            AND to_tsvector('english', p.title || ' ' || p.prompt || ' ' || COALESCE(p."contentBlocks"::text, ''))
+            AND p."currentRevisionId" IS NOT NULL
+            AND to_tsvector('english', r.title || ' ' || r.prompt || ' ' || COALESCE(r."contentBlocks"::text, ''))
                 @@ plainto_tsquery('english', ${query.trim()})
           ORDER BY 
             ${sortBy === 'relevance' ? 'rank DESC' : 
@@ -214,16 +218,17 @@ export const searchRouter = createTRPCRouter({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const suggestions = await (ctx.db as any).$queryRaw`
         SELECT DISTINCT
-          p.title,
+          r.title,
           ts_rank(
-            to_tsvector('english', p.title),
+            to_tsvector('english', r.title),
             plainto_tsquery('english', ${query.trim()})
           ) as rank
         FROM "Post" p
+        INNER JOIN "Revision" r ON p."currentRevisionId" = r.id
         WHERE 
           p.status = 'PUBLISHED' 
-          AND p."isLatest" = true
-          AND to_tsvector('english', p.title) @@ plainto_tsquery('english', ${query.trim()})
+          AND p."currentRevisionId" IS NOT NULL
+          AND to_tsvector('english', r.title) @@ plainto_tsquery('english', ${query.trim()})
         ORDER BY rank DESC
         LIMIT ${limit}
       `;

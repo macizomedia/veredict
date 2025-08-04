@@ -18,7 +18,7 @@ export const categoryRouter = createTRPCRouter({
             posts: {
               where: {
                 status: 'PUBLISHED',
-                isLatest: true,
+                currentRevisionId: { not: null },
               },
             },
           },
@@ -55,7 +55,7 @@ export const categoryRouter = createTRPCRouter({
           posts: {
             where: {
               status: "PUBLISHED",
-              isLatest: true,
+              currentRevisionId: { not: null },
             },
             take: 10,
             orderBy: { createdAt: "desc" },

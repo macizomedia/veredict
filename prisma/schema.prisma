@@ -9,7 +9,36 @@ datasource db {
 }
 
 model Post {
-  id               Int          @id @default(autoincrement())
+  id                 Int          @id @default(autoincrement())
+  slug               String       @unique
+  status             PostStatus   @default(DRAFT)
+  categoryId         Int?
+  currentRevisionId  Int?         @unique
+  upVotes            Int          @default(0)
+  downVotes          Int          @default(0)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  
+  // Relationships
+  category           Category?    @relation(fields: [categoryId], references: [id])
+  currentRevision    Revision?    @relation("CurrentRevision", fields: [currentRevisionId], references: [id])
+  revisions          Revision[]   @relation("PostRevisions")
+  authors            PostAuthor[]
+  analytics          Analytics?
+  internalComments   Comment[]
+  labels             PostLabel[]
+  sources            Source[]
+  votes              Vote[]
+
+  @@index([createdAt])
+  @@index([status])
+  @@index([categoryId])
+  @@index([slug])
+  @@map("Post")
+}
+
+model Revision {
+  id               Int        @id @default(autoincrement())
   title            String
   contentBlocks    Json?
   prompt           String
@@ -17,32 +46,23 @@ model Post {
   style            String
   minRead          Int
   location         Json?
-  status           PostStatus   @default(DRAFT)
-  version          Int          @default(1)
-  isLatest         Boolean      @default(true)
   summaryOfChanges String?
+  version          Int        @default(1)
+  postId           Int
   parentId         Int?
-  categoryId       Int?
-  upVotes          Int          @default(0)
-  downVotes        Int          @default(0)
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
-  analytics        Analytics?
-  internalComments Comment[]
-  category         Category?    @relation(fields: [categoryId], references: [id])
-  parent           Post?        @relation("PostHistory", fields: [parentId], references: [id])
-  revisions        Post[]       @relation("PostHistory")
-  authors          PostAuthor[]
-  labels           PostLabel[]
-  sources          Source[]
-  votes            Vote[]
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
 
+  // Relationships
+  post             Post       @relation("PostRevisions", fields: [postId], references: [id], onDelete: Cascade)
+  parent           Revision?  @relation("RevisionHistory", fields: [parentId], references: [id])
+  children         Revision[] @relation("RevisionHistory")
+  currentPost      Post?      @relation("CurrentRevision")
+
+  @@index([postId])
+  @@index([version])
   @@index([createdAt])
-  @@index([status])
-  @@index([categoryId])
-  @@index([isLatest])
-  // Full-text search index (PostgreSQL specific)
-  @@map("Post")
+  @@map("Revision")
 }
 
 model Category {

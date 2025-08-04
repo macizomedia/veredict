@@ -54,6 +54,7 @@ export default function CreatePostPage() {
     style: "journalistic" as const,
     length: "medium" as const,
     sources: "",
+    categoryId: null as number | null,
   });
 
   // Generate content mutation
@@ -80,6 +81,9 @@ export default function CreatePostPage() {
       toast.error(`Generation failed: ${error.message}`);
     },
   });
+
+  // Get all categories
+  const { data: categories = [] } = api.category.getAll.useQuery();
 
   // Create post mutation (for final publishing)
   const createPost = api.ai.createPostWithAI.useMutation({
@@ -122,6 +126,7 @@ export default function CreatePostPage() {
         style: formData.style,
         length: formData.length,
         sources: formData.sources ? [formData.sources] : undefined,
+        categoryId: formData.categoryId || undefined,
       });
     }
   };
@@ -243,6 +248,22 @@ export default function CreatePostPage() {
                       value={formData.sources}
                       onChange={(e) => setFormData({ ...formData, sources: e.target.value })}
                     />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="category">Category</Label>
+                    <Select value={formData.categoryId?.toString() || ""} onValueChange={(value) => setFormData({ ...formData, categoryId: value ? parseInt(value) : null })}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a category..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {categories.map((category: any) => (
+                          <SelectItem key={category.id} value={category.id.toString()}>
+                            {category.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
 
@@ -515,6 +536,7 @@ export default function CreatePostPage() {
                       style: "journalistic",
                       length: "medium",
                       sources: "",
+                      categoryId: null,
                     });
                   }}>
                     Create Another Post

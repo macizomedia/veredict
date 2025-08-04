@@ -2,10 +2,12 @@ import { api } from "@/trpc/server";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { VoteButtons } from "@/app/_components/vote-buttons";
+import { ContentBlocks } from "@/app/_components/content-blocks";
 import { PostViewTracker } from "@/app/_components/post-view-tracker";
 import { Comments } from "@/app/_components/comments";
 import { notFound } from "next/navigation";
 import { auth } from "@/server/auth";
+import { Sparkles, Zap } from "lucide-react";
 
 interface PostPageProps {
   params: Promise<{
@@ -50,6 +52,13 @@ export default async function PostPage({ params }: PostPageProps) {
                   {post.category && (
                     <Badge variant="outline">{post.category.name}</Badge>
                   )}
+                  {/* AI Generated Indicator */}
+                  {post.contentBlocks && post.contentBlocks.blocks && (
+                    <Badge variant="secondary" className="bg-purple-100 text-purple-800 hover:bg-purple-200">
+                      <Sparkles className="w-3 h-3 mr-1" />
+                      AI Generated
+                    </Badge>
+                  )}
                 </div>
               </div>
               <div className="text-right text-sm text-gray-500">
@@ -61,14 +70,40 @@ export default async function PostPage({ params }: PostPageProps) {
           
           <CardContent className="space-y-6">
             {/* AI Prompt */}
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <h3 className="font-semibold text-blue-900 mb-2">AI Prompt</h3>
-              <p className="text-blue-800">{post.prompt}</p>
+            <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-lg border border-blue-100">
+              <div className="flex items-center gap-2 mb-3">
+                <Zap className="w-5 h-5 text-blue-600" />
+                <h3 className="font-semibold text-blue-900">AI Generation Details</h3>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <span className="text-sm font-medium text-gray-700">Prompt:</span>
+                  <p className="text-blue-800 mt-1">{post.prompt}</p>
+                </div>
+                {(post.tone || post.style) && (
+                  <div className="flex gap-4 text-sm">
+                    {post.tone && (
+                      <div>
+                        <span className="font-medium text-gray-700">Tone:</span>
+                        <span className="ml-1 capitalize text-gray-600">{post.tone.toLowerCase()}</span>
+                      </div>
+                    )}
+                    {post.style && (
+                      <div>
+                        <span className="font-medium text-gray-700">Style:</span>
+                        <span className="ml-1 capitalize text-gray-600">{post.style.toLowerCase()}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Content */}
             <div className="prose max-w-none">
-              {post.contentBlocks && typeof post.contentBlocks === 'object' && 'content' in post.contentBlocks ? (
+              {post.contentBlocks && post.contentBlocks.blocks && Array.isArray(post.contentBlocks.blocks) ? (
+                <ContentBlocks blocks={post.contentBlocks.blocks} />
+              ) : post.contentBlocks && typeof post.contentBlocks === 'object' && 'content' in post.contentBlocks ? (
                 <div className="text-gray-900 leading-relaxed">
                   {(post.contentBlocks as { content: string }).content.split('\n').map((paragraph, index) => (
                     <p key={index} className="mb-4">

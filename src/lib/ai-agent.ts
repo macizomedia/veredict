@@ -1,4 +1,7 @@
 // AI Agent service for generating content
+import { llmService } from './enhanced-llm-service';
+import type { AIGenerationRequest } from './llm-providers';
+
 export interface AIAgentRequest {
   prompt: string;
   sources?: string[];
@@ -16,6 +19,17 @@ export interface AIAgentResponse {
       content: string;
     }>;
     reviewRequired?: boolean;
+    modelUsed?: {
+      provider: string;
+      modelId: string;
+      tokensUsed: number;
+      cost: number;
+    };
+    metadata?: {
+      generationTime: number;
+      confidence?: number;
+      fallbackUsed?: boolean;
+    };
   };
 }
 
@@ -24,7 +38,89 @@ export class AIAgentService {
   private static readonly ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   /**
-   * Generate content using the AI Agent
+   * Generate content using the Enhanced LLM Service (NEW)
+   */
+  static async generateContentWithLLM(
+    request: AIAgentRequest,
+    useEnhanced: boolean = true
+  ): Promise<AIAgentResponse> {
+    try {
+      if (useEnhanced) {
+        // Use the new enhanced LLM service
+        const enhancedRequest: AIGenerationRequest = {
+          prompt: request.prompt,
+          sources: request.sources,
+          tone: request.tone || 'neutral',
+          style: request.style || 'standard',
+          length: request.length || 'medium',
+          temperature: 0.7,
+          maxTokens: this.getMaxTokensForLength(request.length || 'medium'),
+          topP: 1,
+          stream: false
+        };
+
+        const response = await llmService.generateContent(enhancedRequest);
+        
+        if (response.success) {
+          return {
+            node: "enhanced_llm_generation",
+            value: {
+              draft: response.content,
+              contentBlocks: response.contentBlocks || [
+                { type: 'paragraph', content: response.content }
+              ],
+              reviewRequired: response.metadata.reviewRequired,
+              modelUsed: response.modelUsed,
+              metadata: response.metadata
+            }
+          };
+        } else {
+          throw new Error(response.error || 'LLM generation failed');
+        }
+      } else {
+        // Fallback to original method
+        const results = await this.generateContent(request);
+        return results[0] || this.getErrorResponse('No content generated');
+      }
+    } catch (error) {
+      console.error('Enhanced LLM generation failed, falling back to original:', error);
+      try {
+        const results = await this.generateContent(request);
+        return results[0] || this.getErrorResponse('Fallback generation failed');
+      } catch (fallbackError) {
+        return this.getErrorResponse(`All generation methods failed: ${error}`);
+      }
+    }
+  }
+
+  private static getErrorResponse(errorMessage: string): AIAgentResponse {
+    return {
+      node: "error",
+      value: {
+        draft: "Content generation is currently unavailable. Please try again later.",
+        contentBlocks: [
+          { type: 'paragraph', content: "Content generation is currently unavailable. Please try again later." }
+        ],
+        reviewRequired: true,
+        metadata: {
+          generationTime: 0,
+          confidence: 0
+        }
+      }
+    };
+  }
+
+  private static getMaxTokensForLength(length: string): number {
+    switch (length) {
+      case 'short': return 1024;
+      case 'medium': return 2048;
+      case 'long': return 4096;
+      default: return 2048;
+    }
+  }
+
+  /**
+   * Generate content using the AI Agent (LEGACY)
    */
   static async generateContent(
     request: AIAgentRequest,

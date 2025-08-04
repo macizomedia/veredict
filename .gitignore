@@ -44,3 +44,15 @@ yarn-error.log*
 
 # idea files
 .idea
+
+# development and debug files
+debug-*.js
+test-*.js
+*.backup
+*.bak
+*.old
+*.tmp
+
+# supabase temp files
+supabase/.temp/
+supabase/.branches/
